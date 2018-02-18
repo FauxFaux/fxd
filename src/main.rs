@@ -151,6 +151,49 @@ fn encode_xxd(numbers: bool, width: usize) -> Result<()> {
     Ok(())
 }
 
+fn encode_code(numbers: bool, width: usize) -> Result<()> {
+    let mut off = 0;
+    let stdin = io::stdin();
+    let mut stdin = stdin.lock();
+    let mut line = vec![0u8; width].into_boxed_slice();
+    loop {
+        let read = stdin.read_many(&mut line)?;
+        if 0 == read {
+            break;
+        }
+
+        if numbers {
+            print!("/* {:04x} */ ", off);
+        }
+
+        for i in 0..width {
+            if i < read {
+                print!("0x{:02x}, ", line[i]);
+            } else {
+                print!("      ");
+            }
+        }
+
+        print!("// ");
+
+        for i in 0..width {
+            if i < read {
+                let c = line[i];
+                if c.is_ascii_graphic() {
+                    print!("{}", c as char);
+                } else {
+                    print!(".");
+                }
+            }
+        }
+
+        println!();
+        off += read;
+    }
+
+    Ok(())
+}
+
 fn run() -> Result<()> {
     let matches = clap::App::new("fxd")
         .about("a less rage inducing xxd")
@@ -173,14 +216,22 @@ fn run() -> Result<()> {
                 .default_value("16")
                 .help("output this many bytes per line"),
         )
+        .arg(
+            Arg::with_name("code")
+                .long("code")
+                .help("output commented code"),
+        )
         .get_matches();
 
     let reverse = matches.is_present("reverse");
     let numbers = !matches.is_present("no-addresses");
+    let code = matches.is_present("code");
     let width: usize = matches.value_of("width").expect("default").parse()?;
 
     if reverse {
         undo(numbers)
+    } else if code {
+        encode_code(numbers, width)
     } else {
         encode_xxd(numbers, width)
     }
