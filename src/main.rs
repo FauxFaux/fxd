@@ -2,6 +2,7 @@ extern crate clap;
 
 #[macro_use]
 extern crate error_chain;
+extern crate iowrap;
 extern crate regex;
 
 use std::io;
@@ -9,6 +10,7 @@ use std::io::BufRead;
 use std::io::Write;
 
 use clap::Arg;
+use iowrap::ReadMany;
 
 mod errors;
 use errors::*;
@@ -98,29 +100,90 @@ fn undo(numbers: bool) -> Result<()> {
     Ok(())
 }
 
+fn encode_xxd(numbers: bool, width: usize) -> Result<()> {
+    let mut off = 0;
+    let stdin = io::stdin();
+    let mut stdin = stdin.lock();
+    let mut line = vec![0u8; width].into_boxed_slice();
+    loop {
+        let read = stdin.read_many(&mut line)?;
+        if 0 == read {
+            break;
+        }
+
+        if numbers {
+            print!("{:08x}: ", off);
+        }
+
+        for i in 0..width {
+            if i < read {
+                print!("{:02x}", line[i]);
+            } else {
+                print!("  ");
+            }
+
+            if i % 2 == 1 {
+                print!(" ");
+            }
+        }
+
+        print!(" ");
+
+        if width % 2 == 1 {
+            print!(" ");
+        }
+
+        for i in 0..width {
+            if i < read {
+                let c = line[i];
+                if c.is_ascii_graphic() {
+                    print!("{}", c as char);
+                } else {
+                    print!(".");
+                }
+            }
+        }
+
+        println!();
+        off += read;
+    }
+
+    Ok(())
+}
+
 fn run() -> Result<()> {
     let matches = clap::App::new("fxd")
         .about("a less rage inducing xxd")
         .arg(
             Arg::with_name("reverse")
+                .long("reverse")
                 .short("r")
                 .help("reverse operation: convert hexdump into binary"),
         )
         .arg(
             Arg::with_name("no-addresses")
+                .long("no-addresses")
                 .short("n")
                 .help("don't produce (or require) addresses"),
+        )
+        .arg(
+            Arg::with_name("width")
+                .long("width")
+                .short("w")
+                .default_value("16")
+                .help("output this many bytes per line"),
         )
         .get_matches();
 
     let reverse = matches.is_present("reverse");
     let numbers = !matches.is_present("no-addresses");
+    let width: usize = matches.value_of("width").expect("default").parse()?;
 
     if reverse {
-        return undo(numbers);
+        undo(numbers)
+    } else {
+        encode_xxd(numbers, width)
     }
-
-    unimplemented!();
 }
 
 quick_main!(run);

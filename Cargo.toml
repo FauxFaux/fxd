@@ -6,4 +6,5 @@ authors = ["Chris West (Faux) <git@goeswhere.com>"]
 [dependencies]
 clap = "2"
 error-chain = "0.11"
+iowrap = "0.1"
 regex = "0.2"
