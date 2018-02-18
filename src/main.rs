@@ -2,7 +2,6 @@ extern crate clap;
 
 #[macro_use]
 extern crate error_chain;
-extern crate hex;
 extern crate regex;
 
 use std::io;
@@ -14,7 +13,13 @@ use clap::Arg;
 mod errors;
 use errors::*;
 
-fn undo_line(numbers: bool, re: &regex::Regex, next_offset: u64, line: &str) -> Result<Vec<u8>> {
+fn undo_line(
+    numbers: bool,
+    re: &regex::Regex,
+    next_offset: u64,
+    line: &str,
+    mut nibble: Option<u8>,
+) -> Result<(Vec<u8>, Option<u8>)> {
     let cap = match re.captures(line) {
         Some(cap) => cap,
         None => bail!("invalid line"),
@@ -39,10 +44,27 @@ fn undo_line(numbers: bool, re: &regex::Regex, next_offset: u64, line: &str) -> 
 
     let data = if numbers { &cap[2] } else { &cap[1] };
 
-    let bytes = hex::decode(data)
-        .map_err(|e| format!("data ({}) looked like hex, but was rejected: {}", data, e))?;
+    let mut bytes = Vec::with_capacity(data.len() / 2);
 
-    return Ok(bytes);
+    for byte in data.bytes() {
+        let part = match byte {
+            c @ b'0'...b'9' => c - b'0',
+            c @ b'a'...b'f' => c + 10 - b'a',
+            c @ b'A'...b'F' => c + 10 - b'A',
+            other if other.is_ascii_whitespace() => continue,
+            other => bail!("invalid character in stream: {:?}", other),
+        };
+
+        match nibble {
+            Some(first) => {
+                bytes.push(first * 0x10 + part);
+                nibble = None;
+            }
+            None => nibble = Some(part),
+        };
+    }
+
+    Ok((bytes, nibble))
 }
 
 fn undo(numbers: bool) -> Result<()> {
@@ -60,18 +82,20 @@ fn undo(numbers: bool) -> Result<()> {
 
     let mut next_offset: u64 = 0;
 
+    let mut nibble = None;
     for (line_no, line) in stdin.lock().lines().enumerate() {
         let line = line?;
-        match undo_line(numbers, &re, next_offset, line.as_str()) {
-            Ok(bytes) => {
+        match undo_line(numbers, &re, next_offset, line.as_str(), nibble) {
+            Ok((bytes, new_nibble)) => {
                 next_offset += bytes.len() as u64;
                 dest.write(bytes.as_slice())
                     .map_err(|e| format!("writing output failed: {}", e))?;
+                nibble = new_nibble;
             }
             Err(msg) => bail!("error: {} on line {}: {}", msg, line_no, line),
         };
     }
-    return Ok(());
+    Ok(())
 }
 
 fn run() -> Result<()> {
@@ -93,7 +117,7 @@ fn run() -> Result<()> {
     let numbers = !matches.is_present("no-addresses");
 
     if reverse {
-        undo(numbers)?;
+        return undo(numbers);
     }
 
     unimplemented!();
