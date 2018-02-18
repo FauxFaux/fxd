@@ -1,18 +1,12 @@
-extern crate argparse;
+extern crate clap;
+extern crate hex;
 extern crate regex;
-extern crate rustc_serialize;
 
 use std::io;
-use std::vec::Vec;
-
-use argparse::{StoreFalse, StoreTrue};
-
-// magic:
-use std::io::Read;
 use std::io::BufRead;
 use std::io::Write;
 
-use rustc_serialize::hex::FromHex;
+use clap::Arg;
 
 fn undo_line(
     numbers: bool,
@@ -27,10 +21,12 @@ fn undo_line(
     let cap = option_cap.unwrap();
 
     if numbers {
-        let offset = try!(u64::from_str_radix(&cap[1], 16).map_err(|e| format!(
-            "offset looked like hex, but was rejected: '{}': {}",
-            &cap[1], e
-        )));
+        let offset = u64::from_str_radix(&cap[1], 16).map_err(|e| {
+            format!(
+                "offset looked like hex, but was rejected: '{}': {}",
+                &cap[1], e
+            )
+        })?;
 
         if offset != next_offset {
             return Err(format!(
@@ -42,10 +38,8 @@ fn undo_line(
 
     let data = if numbers { &cap[2] } else { &cap[1] };
 
-    let bytes: Vec<u8> = try!(
-        data.from_hex()
-            .map_err(|e| format!("data ({}) looked like hex, but was rejected: {}", data, e))
-    );
+    let bytes = hex::decode(data)
+        .map_err(|e| format!("data ({}) looked like hex, but was rejected: {}", data, e))?;
 
     return Ok(bytes);
 }
@@ -70,10 +64,8 @@ fn undo(numbers: bool) -> Result<(), String> {
         match undo_line(numbers, &re, next_offset, line.as_str()) {
             Ok(bytes) => {
                 next_offset += bytes.len() as u64;
-                try!(
-                    dest.write(bytes.as_slice())
-                        .map_err(|e| format!("writing output failed: {}", e))
-                );
+                dest.write(bytes.as_slice())
+                    .map_err(|e| format!("writing output failed: {}", e))?;
             }
             Err(msg) => return Err(format!("error: {} on line {}: {}", msg, line_no, line)),
         };
@@ -82,23 +74,22 @@ fn undo(numbers: bool) -> Result<(), String> {
 }
 
 fn main() {
-    let mut reverse = false;
-    let mut numbers = true;
-    {
-        let mut ap = argparse::ArgumentParser::new();
-        ap.set_description("a less rage inducing xxd");
-        ap.refer(&mut reverse).add_option(
-            &["-r", "--reverse"],
-            StoreTrue,
-            "reverse operation: convert hexdump into binary",
-        );
-        ap.refer(&mut numbers).add_option(
-            &["-n", "--no-addresses"],
-            StoreFalse,
-            "don't produce (or require) addresses",
-        );
-        ap.parse_args_or_exit();
-    }
+    let matches = clap::App::new("fxd")
+        .about("a less rage inducing xxd")
+        .arg(
+            Arg::with_name("reverse")
+                .short("r")
+                .help("reverse operation: convert hexdump into binary"),
+        )
+        .arg(
+            Arg::with_name("no-addresses")
+                .short("n")
+                .help("don't produce (or require) addresses"),
+        )
+        .get_matches();
+
+    let reverse = matches.is_present("reverse");
+    let numbers = !matches.is_present("no-addresses");
 
     if reverse {
         undo(numbers).unwrap();
