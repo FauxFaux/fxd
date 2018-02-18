@@ -1,4 +1,7 @@
 extern crate clap;
+
+#[macro_use]
+extern crate error_chain;
 extern crate hex;
 extern crate regex;
 
@@ -8,17 +11,14 @@ use std::io::Write;
 
 use clap::Arg;
 
-fn undo_line(
-    numbers: bool,
-    re: &regex::Regex,
-    next_offset: u64,
-    line: &str,
-) -> Result<Vec<u8>, String> {
-    let option_cap = re.captures(line);
-    if option_cap.is_none() {
-        return Err("invalid line".to_string());
-    }
-    let cap = option_cap.unwrap();
+mod errors;
+use errors::*;
+
+fn undo_line(numbers: bool, re: &regex::Regex, next_offset: u64, line: &str) -> Result<Vec<u8>> {
+    let cap = match re.captures(line) {
+        Some(cap) => cap,
+        None => bail!("invalid line"),
+    };
 
     if numbers {
         let offset = u64::from_str_radix(&cap[1], 16).map_err(|e| {
@@ -29,10 +29,11 @@ fn undo_line(
         })?;
 
         if offset != next_offset {
-            return Err(format!(
+            bail!(
                 "invalid offset, expected {} but was {}",
-                next_offset, offset
-            ));
+                next_offset,
+                offset
+            );
         }
     }
 
@@ -44,7 +45,7 @@ fn undo_line(
     return Ok(bytes);
 }
 
-fn undo(numbers: bool) -> Result<(), String> {
+fn undo(numbers: bool) -> Result<()> {
     let stdin = io::stdin();
     let mut dest = io::stdout();
 
@@ -55,25 +56,25 @@ fn undo(numbers: bool) -> Result<(), String> {
         )
     } else {
         regex::Regex::new(r"^((?:\s*[0-9a-fA-F]+)+)\s*$")
-    }.unwrap();
+    }.expect("compiling static string");
 
     let mut next_offset: u64 = 0;
 
-    for (line_no, line_dumb) in stdin.lock().lines().enumerate() {
-        let line = line_dumb.unwrap();
+    for (line_no, line) in stdin.lock().lines().enumerate() {
+        let line = line?;
         match undo_line(numbers, &re, next_offset, line.as_str()) {
             Ok(bytes) => {
                 next_offset += bytes.len() as u64;
                 dest.write(bytes.as_slice())
                     .map_err(|e| format!("writing output failed: {}", e))?;
             }
-            Err(msg) => return Err(format!("error: {} on line {}: {}", msg, line_no, line)),
+            Err(msg) => bail!("error: {} on line {}: {}", msg, line_no, line),
         };
     }
     return Ok(());
 }
 
-fn main() {
+fn run() -> Result<()> {
     let matches = clap::App::new("fxd")
         .about("a less rage inducing xxd")
         .arg(
@@ -92,8 +93,10 @@ fn main() {
     let numbers = !matches.is_present("no-addresses");
 
     if reverse {
-        undo(numbers).unwrap();
+        undo(numbers)?;
     }
 
     unimplemented!();
 }
+
+quick_main!(run);
