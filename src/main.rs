@@ -5,8 +5,10 @@ extern crate error_chain;
 extern crate iowrap;
 extern crate regex;
 
+use std::fs;
 use std::io;
 use std::io::BufRead;
+use std::io::Read;
 use std::io::Write;
 
 use clap::Arg;
@@ -69,8 +71,7 @@ fn undo_line(
     Ok((bytes, nibble))
 }
 
-fn undo(numbers: bool) -> Result<()> {
-    let stdin = io::stdin();
+fn undo<R: BufRead>(input: R, numbers: bool) -> Result<()> {
     let mut dest = io::stdout();
 
     let re = if numbers {
@@ -85,7 +86,7 @@ fn undo(numbers: bool) -> Result<()> {
     let mut next_offset: u64 = 0;
 
     let mut nibble = None;
-    for (line_no, line) in stdin.lock().lines().enumerate() {
+    for (line_no, line) in input.lines().enumerate() {
         let line = line?;
         match undo_line(numbers, &re, next_offset, line.as_str(), nibble) {
             Ok((bytes, new_nibble)) => {
@@ -100,13 +101,11 @@ fn undo(numbers: bool) -> Result<()> {
     Ok(())
 }
 
-fn encode_xxd(numbers: bool, width: usize) -> Result<()> {
+fn encode_xxd<R: Read>(mut input: R, numbers: bool, width: usize) -> Result<()> {
     let mut off = 0;
-    let stdin = io::stdin();
-    let mut stdin = stdin.lock();
     let mut line = vec![0u8; width].into_boxed_slice();
     loop {
-        let read = stdin.read_many(&mut line)?;
+        let read = input.read_many(&mut line)?;
         if 0 == read {
             break;
         }
@@ -151,13 +150,11 @@ fn encode_xxd(numbers: bool, width: usize) -> Result<()> {
     Ok(())
 }
 
-fn encode_code(numbers: bool, width: usize) -> Result<()> {
+fn encode_code<R: Read>(mut input: R, numbers: bool, width: usize) -> Result<()> {
     let mut off = 0;
-    let stdin = io::stdin();
-    let mut stdin = stdin.lock();
     let mut line = vec![0u8; width].into_boxed_slice();
     loop {
-        let read = stdin.read_many(&mut line)?;
+        let read = input.read_many(&mut line)?;
         if 0 == read {
             break;
         }
@@ -221,6 +218,12 @@ fn run() -> Result<()> {
                 .long("code")
                 .help("output commented code"),
         )
+        .arg(
+            Arg::with_name("INPUT")
+                .required(false)
+                .index(1)
+                .help("file to read"),
+        )
         .get_matches();
 
     let reverse = matches.is_present("reverse");
@@ -228,12 +231,18 @@ fn run() -> Result<()> {
     let code = matches.is_present("code");
     let width: usize = matches.value_of("width").expect("default").parse()?;
 
+    let stdin = io::stdin();
+    let input: Box<BufRead> = match matches.value_of("INPUT") {
+        Some(path) => Box::new(io::BufReader::new(fs::File::open(path)?)),
+        None => Box::new(stdin.lock()),
+    };
+
     if reverse {
-        undo(numbers)
+        undo(input, numbers)
     } else if code {
-        encode_code(numbers, width)
+        encode_code(input, numbers, width)
     } else {
-        encode_xxd(numbers, width)
+        encode_xxd(input, numbers, width)
     }
 }
 
