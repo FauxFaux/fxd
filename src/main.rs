@@ -17,6 +17,8 @@ use iowrap::ReadMany;
 mod errors;
 use errors::*;
 
+const VERSION: &'static str = env!("CARGO_PKG_VERSION");
+
 fn undo_line(
     numbers: bool,
     re: &regex::Regex,
@@ -193,6 +195,7 @@ fn encode_code<R: Read>(mut input: R, numbers: bool, width: usize) -> Result<()>
 
 fn run() -> Result<()> {
     let matches = clap::App::new("fxd")
+        .version(VERSION)
         .about("a less rage inducing xxd")
         .arg(
             Arg::with_name("reverse")
